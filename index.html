@@ -302,7 +302,7 @@
                 setInterval(checkSevereAlerts, CONFIG.alertsInterval);
                 setInterval(checkCurrentConditions, CONFIG.weatherInterval);
                 setInterval(fetchLiveLightningFeed, CONFIG.lightningInterval); 
-                setInterval(refreshVaisalaToken, 3000000); // Refresh token every 50 mins
+                setInterval(refreshVaisalaToken, 3000000); 
             }
 
             function showToast(message) {
@@ -339,7 +339,7 @@
             function fetchLiveLightningFeed() {
                 if (!vaisalaAccessToken) return;
 
-                const radiusMeters = 40000; // ~25 miles
+                const radiusMeters = 40000; 
                 const url = `https://ltg.vaisala.com/realtime/merge?lat=${CONFIG.lat}&lon=${CONFIG.lon}&radiusM=${radiusMeters}`;
 
                 fetch(url, {
