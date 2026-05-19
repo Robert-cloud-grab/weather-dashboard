@@ -147,3 +147,334 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.5);
             animation: fadeIn 0.3s forwards;
         }
+
+        path.lightning-danger { animation: pulse-danger 1s infinite ease-in-out !important; }
+        path.lightning-warn { animation: pulse-warn 1.6s infinite ease-in-out !important; }
+
+        @keyframes pulse-danger {
+            0% { stroke-opacity: 1; stroke-width: 3; fill-opacity: 0.9; }
+            50% { stroke-opacity: 0.3; stroke-width: 14; fill-opacity: 0.5; }
+            100% { stroke-opacity: 1; stroke-width: 3; fill-opacity: 0.9; }
+        }
+        @keyframes pulse-warn {
+            0% { stroke-opacity: 0.4; stroke-width: 2; }
+            50% { stroke-opacity: 1; stroke-width: 7; }
+            100% { stroke-opacity: 0.4; stroke-width: 2; }
+        }
+        @keyframes sidebar-blink { 50% { opacity: 0.5; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        @media (max-width: 768px) {
+            .main-container { flex-direction: column; }
+            .sidebar { width: auto; height: 320px; order: 2; }
+            #map { order: 1; }
+            #btn-center-yard { bottom: auto; top: 20px; left: 50px; }
+            .map-legend { bottom: 20px; right: 10px; width: 160px; font-size: 0.7rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SUPERIOR STEEL SALES — WEATHER OPERATIONS CENTER</h1>
+    </header>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <div class="card card-weather">
+                <h3>Current Yard Conditions</h3>
+                <div id="current-weather">Loading data stream...</div>
+            </div>
+
+            <div class="card card-lightning">
+                <h3>Lightning Proximity Status</h3>
+                <div id="status-text" class="status-text">ALL CLEAR</div>
+                <div id="countdown-timer" class="timer-display">15:00</div>
+                
+                <div class="btn-group">
+                    <button onclick="window.WeatherHub.simulateLightning(true)" class="btn-test" style="background:#ff3333;">Test Inside (10mi)</button>
+                    <button onclick="window.WeatherHub.simulateLightning(false)" class="btn-test" style="background:#ffcc00; color:#000;">Test Distant</button>
+                </div>
+            </div>
+
+            <div class="card card-alerts">
+                <h3>Local Yard Alerts</h3>
+                <div id="alerts-container">
+                    <p style="color: #aaa;">No active severe weather warnings at the yard.</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="map">
+            <button id="btn-center-yard" onclick="window.WeatherHub.centerOnYard()">🎯 Center on Yard</button>
+
+            <div class="map-legend">
+                <div class="legend-header" onclick="window.WeatherHub.toggleLegend()">
+                    <span>NWS MAP LEGEND</span>
+                    <span id="legend-toggle-arrow">▼</span>
+                </div>
+                <div id="legend-content-panel" class="legend-content">
+                    <div class="legend-item"><div class="legend-color" style="background: #ff0000;"></div><span>Tornado Warning</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: #ffa500;"></div><span>Severe Thunderstorm Wmn.</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: #db7093;"></div><span>Severe Thunderstorm Watch</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: #8b0000;"></div><span>Flash Flood Warning</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: #ff69b4;"></div><span>Winter Storm Warning</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: #4682b4;"></div><span>Winter Storm Watch</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: #9400d3;"></div><span>Severe Weather Watch</span></div>
+                    <div class="legend-item"><div class="legend-color" style="background: #00ff00;"></div><span>General Flood Warning</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        (function() {
+            'use strict';
+
+            const CONFIG = {
+                lat: 37.081447,
+                lon: -94.249043,
+                radiusMiles: 10,
+                radiusMeters: 16093.4,
+                alertsInterval: 120000,     
+                weatherInterval: 600000,    
+                cacheLimitAlerts: 90000,
+                lightningInterval: 15000 // Checks for lightning strikes every 15 seconds
+            };
+
+            const XWEATHER = {
+                id: '5zxQsPO2HRXGX9q5e7QEX',
+                secret: '2mPcLIOqHj9VoUrTNeg5b3Fekgm6Nqg9LMvUA5o8'
+            };
+
+            let map, facilityMarker, safetyRadius, premiumRadarLayer;
+            let timerInterval = null;
+            let countdownValue = 0;
+            let lastAlertCheckTime = 0;
+
+            function initDashboard() {
+                map = L.map('map', {
+                    center: [CONFIG.lat, CONFIG.lon],
+                    zoom: 11, 
+                    minZoom: 4,
+                    maxZoom: 18
+                });
+
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '© OpenStreetMap & CartoDB',
+                    maxZoom: 18
+                }).addTo(map);
+
+                // Integrated: Premium Xweather Live Radar Layer
+                premiumRadarLayer = L.tileLayer(`https://maps.aerisapi.com/${XWEATHER.id}_${XWEATHER.secret}/radar/{z}/{x}/{y}/current.png`, {
+                    opacity: 0.50,
+                    zIndex: 100
+                }).addTo(map);
+
+                facilityMarker = L.marker([CONFIG.lat, CONFIG.lon]).addTo(map)
+                    .bindPopup('<b>Superior Steel Sales</b><br>Yard Coordinate Base Target')
+                    .openPopup();
+
+                safetyRadius = L.circle([CONFIG.lat, CONFIG.lon], {
+                    color: '#ff3333',
+                    fillColor: '#ff3333',
+                    fillOpacity: 0.02,
+                    radius: CONFIG.radiusMeters
+                }).addTo(map);
+
+                L.tileLayer.wms('https://opengeo.ncep.noaa.gov/geoserver/wwa/hazards/ows', {
+                    layers: 'hazards',
+                    format: 'image/png',
+                    transparent: true,
+                    opacity: 0.40,
+                    zIndex: 5
+                }).addTo(map);
+
+                checkSevereAlerts();
+                checkCurrentConditions();
+                fetchLiveLightningFeed();
+
+                setInterval(() => { premiumRadarLayer.redraw(); }, 300000); // Refreshes premium radar image layer every 5 minutes
+                setInterval(checkSevereAlerts, CONFIG.alertsInterval);
+                setInterval(checkCurrentConditions, CONFIG.weatherInterval);
+                setInterval(fetchLiveLightningFeed, CONFIG.lightningInterval); 
+            }
+
+            function showToast(message) {
+                const container = document.getElementById('toast-container');
+                const toast = document.createElement('div');
+                toast.className = 'toast';
+                toast.innerText = message;
+                container.appendChild(toast);
+                setTimeout(() => { toast.remove(); }, 4000);
+            }
+
+            function fetchLiveLightningFeed() {
+                // Securely fetches live coordinate strikes directly from the Xweather database API
+                const url = `https://data.api.xweather.com/lightning/closest?p=${CONFIG.lat},${CONFIG.lon}&radius=40km&limit=50&client_id=${XWEATHER.id}&client_secret=${XWEATHER.secret}`;
+
+                fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.success && data.response) {
+                            data.response.forEach(strike => {
+                                if (strike.loc && strike.loc.lat && strike.loc.long) {
+                                    processIncomingLightningStrike(strike.loc.lat, strike.loc.long);
+                                }
+                            });
+                        }
+                    })
+                    .catch(err => console.error("Xweather pipeline hold:", err));
+            }
+
+            function checkSevereAlerts() {
+                const now = Date.now();
+                if (now - lastAlertCheckTime < CONFIG.cacheLimitAlerts) return;
+                lastAlertCheckTime = now;
+
+                const nwsUrl = `https://api.weather.gov/alerts/active?point=${CONFIG.lat},${CONFIG.lon}`;
+                fetch(nwsUrl, { headers: { 'User-Agent': 'SuperiorSteelDashboard/2.2' } })
+                    .then(res => { if(!res.ok) throw new Error(); return res.json(); })
+                    .then(data => {
+                        const container = document.getElementById('alerts-container');
+                        container.innerHTML = ''; 
+
+                        const criticalAlerts = data.features.filter(f => 
+                            ['Tornado Warning', 'Tornado Watch', 'Severe Thunderstorm Warning', 'Severe Thunderstorm Watch', 'Winter Storm Warning', 'Winter Storm Watch', 'Blizzard Warning']
+                            .includes(f.properties.event)
+                        );
+
+                        if (criticalAlerts.length === 0) {
+                            container.innerHTML = '<p style="color: #00ff66;">✔ No critical alerts at the yard location.</p>';
+                            return;
+                        }
+
+                        criticalAlerts.forEach(alert => {
+                            const div = document.createElement('div');
+                            div.className = 'alert-item';
+                            div.innerHTML = `
+                                <div class="alert-title">${alert.properties.event}</div>
+                                <small>Expires: ${new Date(alert.properties.expires).toLocaleTimeString()}</small>
+                                <p style="font-size: 0.85rem; margin: 5px 0 0 0;">${alert.properties.headline}</p>
+                            `;
+                            container.appendChild(div);
+                        });
+                    })
+                    .catch(() => showToast("Alert synchronization failure from NWS network servers."));
+            }
+
+            function checkCurrentConditions() {
+                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${CONFIG.lat}&longitude=${CONFIG.lon}&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_direction_10m&temperature_unit=fahrenheit&wind_speed_unit=mph`;
+                
+                fetch(weatherUrl)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data || !data.current) return;
+                        const c = data.current;
+                        
+                        const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+                        const index = Math.round(c.wind_direction_10m / 45) % 8;
+                        const compassWind = directions[index];
+
+                        document.getElementById('current-weather').innerHTML = `
+                            <div style="display:flex; justify-content:space-between; font-size:1.1rem; font-weight:bold;">
+                                <span>Temp: ${Math.round(c.temperature_2m)}°F</span>
+                                <span>Feels Like: ${Math.round(c.apparent_temperature)}°F</span>
+                            </div>
+                            <div style="margin-top: 8px; color: #aaa; font-size: 0.9rem;">
+                                Wind Configuration: <b>${Math.round(c.wind_speed_10m)} MPH</b> from the <b>${compassWind}</b>
+                            </div>
+                        `;
+                    })
+                    .catch(() => showToast("Unable to refresh current local weather metrics."));
+            }
+
+            function startSafetyCountdown() {
+                countdownValue = 15 * 60; 
+                const statusTxt = document.getElementById('status-text');
+                const timerTxt = document.getElementById('countdown-timer');
+
+                statusTxt.innerText = "⚠️ LIGHTNING BREACH — TAKE COVER";
+                statusTxt.style.color = "#ff3333";
+                statusTxt.classList.remove('all-clear-flash');
+                timerTxt.classList.add('timer-active');
+
+                if (timerInterval) clearInterval(timerInterval);
+                timerInterval = setInterval(() => {
+                    countdownValue--;
+                    let mins = Math.floor(countdownValue / 60);
+                    let secs = countdownValue % 60;
+                    timerTxt.innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+                    if (countdownValue <= 0) {
+                        clearInterval(timerInterval);
+                        statusTxt.innerText = "ALL CLEAR — SAFE TO RESUME";
+                        statusTxt.style.color = "#00ff66";
+                        statusTxt.classList.add('all-clear-flash'); 
+                        timerTxt.classList.remove('timer-active');
+                        timerTxt.innerText = "15:00";
+                        
+                        setTimeout(() => { statusTxt.classList.remove('all-clear-flash'); }, 3000);
+                    }
+                }, 1000);
+            }
+
+            function calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 3958.8; 
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+                return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+            }
+
+            function processIncomingLightningStrike(strikeLat, strikeLon) {
+                const distance = calculateDistance(CONFIG.lat, CONFIG.lon, strikeLat, strikeLon);
+                const insideSafetyZone = distance <= CONFIG.radiusMiles;
+
+                const strikeMarker = L.circleMarker([strikeLat, strikeLon], {
+                    radius: insideSafetyZone ? 9 : 6,
+                    color: insideSafetyZone ? '#ff1111' : '#ffcc00', 
+                    fillColor: '#ffffff',
+                    fillOpacity: 1,
+                    className: insideSafetyZone ? 'lightning-danger' : 'lightning-warn'
+                }).addTo(map).bindPopup(`Lightning strike: ${distance.toFixed(2)} miles from yard`);
+
+                setTimeout(() => { map.removeLayer(strikeMarker); }, 900000);
+
+                if (insideSafetyZone) {
+                    startSafetyCountdown();
+                }
+            }
+
+            window.WeatherHub = {
+                centerOnYard: function() {
+                    map.setView([CONFIG.lat, CONFIG.lon], 12);
+                    facilityMarker.openPopup();
+                },
+                toggleLegend: function() {
+                    const panel = document.getElementById('legend-content-panel');
+                    const arrow = document.getElementById('legend-toggle-arrow');
+                    panel.classList.toggle('collapsed');
+                    arrow.innerText = panel.classList.contains('collapsed') ? '▲' : '▼';
+                },
+                simulateLightning: function(isNearby) {
+                    let mockLat, mockLon;
+                    if (isNearby) {
+                        mockLat = CONFIG.lat + (Math.random() - 0.5) * 0.12;
+                        mockLon = CONFIG.lon + (Math.random() - 0.5) * 0.12;
+                    } else {
+                        mockLat = CONFIG.lat + (Math.random() - 0.5) * 2.2;
+                        mockLon = CONFIG.lon + (Math.random() - 0.5) * 2.2;
+                    }
+                    processIncomingLightningStrike(mockLat, mockLon);
+                }
+            };
+
+            window.onload = initDashboard;
+        })();
+    </script>
+</body>
+</html>
