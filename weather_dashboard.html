@@ -1,0 +1,56 @@
+// Global variable to hold your active session security token
+let vaisalaAccessToken = null;
+
+// STEP 1: Authenticate with Vaisala to get a fresh 1-hour token
+function refreshVaisalaToken() {
+    const username = '5SSqCfpnIh';
+    const password = 'lKbjfrLqogen';
+
+    fetch('https://ltg-auth.vaisala.com/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=password&username=${username}&password=${password}`
+    })
+    .then(res => res.json())
+    .then(authData => {
+        vaisalaAccessToken = authData.access_token;
+        console.log("Vaisala security clearance granted.");
+    })
+    .catch(err => console.error("Vaisala authentication failed:", err));
+}
+
+// STEP 2: Pull the live strikes using the active token
+function fetchLiveLightningFeed() {
+    // If we haven't authenticated yet, run the token fetch and skip this loop cycle
+    if (!vaisalaAccessToken) {
+        refreshVaisalaToken();
+        return;
+    }
+
+    // Query Vaisala for strikes within a 40,000 meter (~25 mile) radius of your Blackberry Rd yard
+    const radiusMeters = 40000;
+    const url = `https://ltg.vaisala.com/realtime/merge?lat=${CONFIG.lat}&lon=${CONFIG.lon}&radiusM=${radiusMeters}`;
+
+    fetch(url, {
+        headers: { 'Authorization': `Bearer ${vaisalaAccessToken}` }
+    })
+    .then(res => {
+        // If our 1-hour token expired, force a refresh for the next cycle
+        if (res.status === 401) { vaisalaAccessToken = null; return []; }
+        return res.json();
+    })
+    .then(strikesArray => {
+        if (strikesArray && strikesArray.length > 0) {
+            strikesArray.forEach(strike => {
+                // Pass the coordinates straight into your dashboard's map/countdown brain
+                processIncomingLightningStrike(strike.location.lat, strike.location.lon);
+            });
+        }
+    })
+    .catch(err => console.error("Vaisala stream interrupted:", err));
+}
+
+// Run the authentication trigger immediately when the script runs
+refreshVaisalaToken();
+// Automatically refresh the token security window every 50 minutes
+setInterval(refreshVaisalaToken, 3000000);
