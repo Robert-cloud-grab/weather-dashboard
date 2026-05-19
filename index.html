@@ -242,12 +242,12 @@
                 alertsInterval: 120000,     
                 weatherInterval: 600000,    
                 cacheLimitAlerts: 90000,
-                lightningInterval: 15000 // Checks for lightning strikes every 15 seconds
+                lightningInterval: 15000 
             };
 
             const XWEATHER = {
                 id: '5zxQsPO2HRXGX9q5e7QEX',
-                secret: '2mPcLIOqHj9VoUrTNeg5b3Fekgm6Nqg9LMvUA5o8'
+                secret: 'IzS69yz8d8BwTu1Z400rOjj7kWNrViUNjxhawGda'
             };
 
             let map, facilityMarker, safetyRadius, premiumRadarLayer;
@@ -268,7 +268,6 @@
                     maxZoom: 18
                 }).addTo(map);
 
-                // Integrated: Premium Xweather Live Radar Layer
                 premiumRadarLayer = L.tileLayer(`https://maps.aerisapi.com/${XWEATHER.id}_${XWEATHER.secret}/radar/{z}/{x}/{y}/current.png`, {
                     opacity: 0.50,
                     zIndex: 100
@@ -297,7 +296,7 @@
                 checkCurrentConditions();
                 fetchLiveLightningFeed();
 
-                setInterval(() => { premiumRadarLayer.redraw(); }, 300000); // Refreshes premium radar image layer every 5 minutes
+                setInterval(() => { premiumRadarLayer.redraw(); }, 300000); 
                 setInterval(checkSevereAlerts, CONFIG.alertsInterval);
                 setInterval(checkCurrentConditions, CONFIG.weatherInterval);
                 setInterval(fetchLiveLightningFeed, CONFIG.lightningInterval); 
@@ -313,7 +312,6 @@
             }
 
             function fetchLiveLightningFeed() {
-                // Securely fetches live coordinate strikes directly from the Xweather database API
                 const url = `https://data.api.xweather.com/lightning/closest?p=${CONFIG.lat},${CONFIG.lon}&radius=40km&limit=50&client_id=${XWEATHER.id}&client_secret=${XWEATHER.secret}`;
 
                 fetch(url)
@@ -430,6 +428,7 @@
                 return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
             }
 
+            // Centralized Ingestion Stream handler for the singular feed
             function processIncomingLightningStrike(strikeLat, strikeLon) {
                 const distance = calculateDistance(CONFIG.lat, CONFIG.lon, strikeLat, strikeLon);
                 const insideSafetyZone = distance <= CONFIG.radiusMiles;
@@ -442,6 +441,7 @@
                     className: insideSafetyZone ? 'lightning-danger' : 'lightning-warn'
                 }).addTo(map).bindPopup(`Lightning strike: ${distance.toFixed(2)} miles from yard`);
 
+                // Markers persist for exactly 15 minutes before deletion
                 setTimeout(() => { map.removeLayer(strikeMarker); }, 900000);
 
                 if (insideSafetyZone) {
@@ -463,18 +463,4 @@
                 simulateLightning: function(isNearby) {
                     let mockLat, mockLon;
                     if (isNearby) {
-                        mockLat = CONFIG.lat + (Math.random() - 0.5) * 0.12;
-                        mockLon = CONFIG.lon + (Math.random() - 0.5) * 0.12;
-                    } else {
-                        mockLat = CONFIG.lat + (Math.random() - 0.5) * 2.2;
-                        mockLon = CONFIG.lon + (Math.random() - 0.5) * 2.2;
-                    }
-                    processIncomingLightningStrike(mockLat, mockLon);
-                }
-            };
-
-            window.onload = initDashboard;
-        })();
-    </script>
-</body>
-</html>
+                        mockLat = CONFIG.lat +
