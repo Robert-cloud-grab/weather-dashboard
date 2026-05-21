@@ -314,7 +314,7 @@
             }
 
             function fetchLiveLightningFeed() {
-                const url = `https://data.api.xweather.com/lightning/closest?p=${CONFIG.lat},${CONFIG.lon}&radius=40km&limit=50&client_id=${XWEATHER.id}&client_secret=${XWEATHER.secret}`;
+                const url = `https://data.api.xweather.com/lightning/closest?p=${CONFIG.lat},${CONFIG.lon}&radius=550km&limit=50&client_id=${XWEATHER.id}&client_secret=${XWEATHER.secret}`;
 
                 fetch(url)
                     .then(res => res.json())
